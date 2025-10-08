@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
@@ -38,8 +37,9 @@ import {
   DoorOpen,
   Award,
 } from "lucide-react"
-import { users, menuItems, tables, orders, getAllWaitersPerformance } from "@/lib/data"
+import { tables, orders, getAllWaitersPerformance } from "@/lib/data" // Keep these for now for overview stats
 import { getAuthFromCookies, clearAuthCookies } from "@/lib/auth"
+import type { User, MenuItem } from "@/lib/types"
 
 export default function AdminPage() {
   const router = useRouter()
@@ -52,6 +52,12 @@ export default function AdminPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const staffFileInputRef = useRef<HTMLInputElement>(null)
 
+  // State for data fetched from the backend
+  const [staff, setStaff] = useState<User[]>([])
+  const [menu, setMenu] = useState<MenuItem[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  // These can be replaced later with backend calculations
   const waitersPerformance = getAllWaitersPerformance()
   const totalSalesToday = orders
     .filter((o) => {
@@ -74,6 +80,25 @@ export default function AdminPage() {
       return
     }
     setUserName(auth.userName)
+
+    async function fetchData() {
+      setIsLoading(true)
+      try {
+        const [staffRes, menuRes] = await Promise.all([
+          fetch('/api/staff'),
+          fetch('/api/menu')
+        ]);
+        const staffData = await staffRes.json();
+        const menuData = await menuRes.json();
+        setStaff(staffData);
+        setMenu(menuData);
+      } catch (error) {
+        console.error("Failed to fetch admin data", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchData();
   }, [router])
 
   const handleLogout = () => {
@@ -95,6 +120,46 @@ export default function AdminPage() {
       reader.readAsDataURL(file)
     }
   }
+
+  // Handler for adding a new menu item
+  const handleAddMenuItem = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const newItem = {
+        name: formData.get('item-name'),
+        description: formData.get('item-description'),
+        category: formData.get('item-category'),
+        price: formData.get('item-price'),
+    };
+
+    try {
+        const response = await fetch('/api/menu', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newItem),
+        });
+
+        if (response.ok) {
+            const addedItem = await response.json();
+            setMenu([...menu, addedItem]); // Optimistically update UI
+            setShowAddMenuDialog(false);
+        } else {
+            alert('Failed to add menu item.');
+        }
+    } catch (error) {
+        console.error("Error adding menu item:", error);
+        alert('An error occurred.');
+    }
+  };
+
+  if (isLoading) {
+    return (
+        <div className="flex h-screen items-center justify-center">
+            <p>Loading admin dashboard...</p>
+        </div>
+    )
+  }
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -200,11 +265,11 @@ export default function AdminPage() {
                     <span className="hidden sm:inline">Active Staff</span>
                     <span className="sm:hidden">Staff</span>
                   </CardDescription>
-                  <CardTitle className="text-xl sm:text-3xl">{users.filter((u) => u.isActive).length}</CardTitle>
+                  <CardTitle className="text-xl sm:text-3xl">{staff.filter((u) => u.isActive).length}</CardTitle>
                 </CardHeader>
                 <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                   <p className="text-xs text-muted-foreground">
-                    {users.filter((u) => u.role === "waiter" && u.isActive).length} waiters on shift
+                    {staff.filter((u) => u.role === "waiter" && u.isActive).length} waiters on shift
                   </p>
                 </CardContent>
               </Card>
@@ -270,7 +335,7 @@ export default function AdminPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {menuItems.slice(0, 4).map((item, index) => (
+                    {menu.slice(0, 4).map((item, index) => (
                       <div key={item.id} className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
@@ -472,7 +537,7 @@ export default function AdminPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {users.map((user) => (
+                      {staff.map((user) => (
                         <TableRow key={user.id}>
                           <TableCell className="font-medium text-xs sm:text-sm">{user.name}</TableCell>
                           <TableCell className="text-xs sm:text-sm hidden md:table-cell">{user.email}</TableCell>
@@ -527,7 +592,7 @@ export default function AdminPage() {
                         <DialogTitle>Add New Menu Item</DialogTitle>
                         <DialogDescription>Enter the details of the new menu item</DialogDescription>
                       </DialogHeader>
-                      <div className="space-y-4">
+                      <form onSubmit={handleAddMenuItem} className="space-y-4">
                         <div className="space-y-2">
                           <Label>Item Image</Label>
                           <div className="flex flex-col items-center gap-3">
@@ -565,15 +630,15 @@ export default function AdminPage() {
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="item-name">Item Name</Label>
-                          <Input id="item-name" placeholder="Grilled Chicken" />
+                          <Input id="item-name" name="item-name" placeholder="Grilled Chicken" required />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="item-description">Description</Label>
-                          <Input id="item-description" placeholder="Tender grilled chicken with herbs" />
+                          <Input id="item-description" name="item-description" placeholder="Tender grilled chicken with herbs" />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="item-category">Category</Label>
-                          <Select>
+                          <Select name="item-category">
                             <SelectTrigger id="item-category">
                               <SelectValue placeholder="Select category" />
                             </SelectTrigger>
@@ -588,10 +653,10 @@ export default function AdminPage() {
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="item-price">Price (KES)</Label>
-                          <Input id="item-price" type="number" step="0.01" placeholder="1599.00" />
+                          <Input id="item-price" name="item-price" type="number" step="0.01" placeholder="1599.00" required />
                         </div>
-                        <Button className="w-full bg-primary hover:bg-primary/90">Add Menu Item</Button>
-                      </div>
+                        <Button type="submit" className="w-full bg-primary hover:bg-primary/90">Add Menu Item</Button>
+                      </form>
                     </DialogContent>
                   </Dialog>
                 </div>
@@ -609,7 +674,7 @@ export default function AdminPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {menuItems.map((item) => (
+                      {menu.map((item) => (
                         <TableRow key={item.id}>
                           <TableCell>
                             <div>

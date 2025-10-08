@@ -3,13 +3,13 @@
 import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { signIn } from "next-auth/react" // <-- Import signIn
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ArrowLeft } from "lucide-react"
-import { authenticateUser, setAuthCookies } from "@/lib/auth"
 import { CredentialsInfo } from "@/components/credentials-info"
 
 export default function LoginPage() {
@@ -19,7 +19,7 @@ export default function LoginPage() {
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setIsLoading(true)
@@ -30,31 +30,22 @@ export default function LoginPage() {
       return
     }
 
-    const user = authenticateUser(email, pin)
+    // Use NextAuth's signIn function
+    const result = await signIn("credentials", {
+      redirect: false, // Don't redirect automatically, we'll handle it
+      email,
+      pin,
+    })
 
-    if (!user) {
+    if (result?.error) {
       setError("Invalid credentials. Please try again.")
       setIsLoading(false)
-      return
+    } else if (result?.ok) {
+      // On successful login, NextAuth creates a session.
+      // We can now redirect. We'll improve this part later to get the user's role.
+      // For now, we'll just push to the main page and let the middleware handle it.
+      router.push("/") // Or router.refresh() and let middleware redirect
     }
-
-    // Set auth cookies
-    setAuthCookies(user)
-
-    // Redirect based on role
-    const roleRoutes: Record<string, string> = {
-      admin: "/admin",
-      manager: "/admin",
-      waiter: "/waiter",
-      kitchen: "/kitchen",
-      reception: "/receptionist",
-      guest: "/qr-order/1",
-    }
-
-    const redirectPath = roleRoutes[user.role] || "/"
-
-    // Use window.location for more reliable navigation
-    window.location.href = redirectPath
   }
 
   return (
